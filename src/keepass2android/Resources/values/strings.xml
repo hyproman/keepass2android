@@ -131,6 +131,7 @@
   <string name="entry_modified">Modified</string>
   <string name="entry_password">Password</string>
   <string name="entry_save">Save</string>
+  <string name="entry_select">Select</string>
   <string name="entry_title">Name</string>
   <string name="entry_url">URL</string>
   <string name="entry_user_name">User Name</string>
