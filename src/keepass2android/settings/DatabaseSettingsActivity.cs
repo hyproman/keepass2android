@@ -41,6 +41,7 @@ using KeePassLib.Cryptography.KeyDerivation;
 using KeePassLib.Interfaces;
 using System.Collections.Generic;
 
+#pragma warning disable 618
 namespace keepass2android
 {
     //http://stackoverflow.com/a/27422401/292233
@@ -896,11 +897,12 @@ namespace keepass2android
 
         
     }
+#pragma warning restore 618
 
-    
+
     /// <summary>
-	/// Activity to configure the application and database settings. The database must be unlocked, and this activity will close if it becomes locked.
-	/// </summary>
+    /// Activity to configure the application and database settings. The database must be unlocked, and this activity will close if it becomes locked.
+    /// </summary>
     [Activity(Label = "@string/app_name", Theme = "@style/MyTheme", ConfigurationChanges = ConfigChanges.Orientation | ConfigChanges.Keyboard | ConfigChanges.KeyboardHidden)]			
 	public class DatabaseSettingsActivity : LockCloseActivity 
 	{
