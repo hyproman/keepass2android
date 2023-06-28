@@ -148,6 +148,7 @@ local.properties
 *.bak
 .idea
 .gradle
+.ackrc
 intermediates
 *.iml
 /build
