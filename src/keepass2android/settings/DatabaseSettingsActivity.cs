@@ -561,7 +561,9 @@ namespace keepass2android
             if (App.Kp2a.CurrentDb.CanWrite)
             {
                 changeMaster.Enabled = true;
-                changeMaster.PreferenceClick += delegate { new SetPasswordDialog(Activity).Show(); };
+                // TODO: Is this right ??
+                changeMaster.PreferenceClick += delegate { StartActivity(new Intent(Activity, typeof(SetPasswordActivity))); };
+                // changeMaster.PreferenceClick += delegate { new SetPasswordDialog(Activity).Show(); };
             }
         }
 

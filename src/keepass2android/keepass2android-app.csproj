@@ -167,6 +167,7 @@
     <Compile Include="EntryActivityClasses\ViewImagePopupItem.cs" />
     <Compile Include="FileSaveProcessManager.cs" />
     <Compile Include="fileselect\FilteredCursor.cs" />
+    <Compile Include="SetPasswordActivity.cs" />
     <Compile Include="ILockCloseActivity.cs" />
     <Compile Include="ImageViewActivity.cs" />
     <Compile Include="addons\OtpKeyProv\EncodingUtil.cs" />
