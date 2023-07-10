@@ -1,0 +1,14 @@
+07-01 23:17:57.395 22080 22547 D KP2A    : error opening file: System.Net.WebException: An exception occurred during a WebClient request. ---> System.NotSupportedException: The URI prefix is not recognized.
+07-01 23:17:57.395 22080 22547 D KP2A    :   at System.Net.WebRequest.Create (System.Uri requestUri, System.Boolean useUriBase) [0x000ae] in <95909ca89b1149fb8e95872d83f4f7cb>:0
+07-01 23:17:57.395 22080 22547 D KP2A    :   at System.Net.WebRequest.Create (System.Uri requestUri) [0x00014] in <95909ca89b1149fb8e95872d83f4f7cb>:0
+07-01 23:17:57.395 22080 22547 D KP2A    :   at System.Net.WebClient.GetWebRequest (System.Uri address) [0x00000] in <95909ca89b1149fb8e95872d83f4f7cb>:0
+07-01 23:17:57.395 22080 22547 D KP2A    :   at KeePassLib.Serialization.IOWebClient.GetWebRequest (System.Uri address) [0x00001] in <54b409bc552b4f8c8161b5e284ef0d2a>:0
+07-01 23:17:57.395 22080 22547 D KP2A    :   at System.Net.WebClient.OpenRead (System.Uri address) [0x0001c] in <95909ca89b1149fb8e95872d83f4f7cb>:0
+07-01 23:17:57.395 22080 22547 D KP2A    :    --- End of inner exception stack trace ---
+07-01 23:17:57.395 22080 22547 D KP2A    :   at System.Net.WebClient.OpenRead (System.Uri address) [0x00089] in <95909ca89b1149fb8e95872d83f4f7cb>:0
+07-01 23:17:57.395 22080 22547 D KP2A    :   at (wrapper remoting-invoke-with-check) System.Net.WebClient.OpenRead(System.Uri)
+07-01 23:17:57.395 22080 22547 D KP2A    :   at KeePassLib.Serialization.IOConnection.OpenRead (KeePassLib.Serialization.IOConnectionInfo ioc) [0x000b8] in <54b409bc552b4f8c8161b5e284ef0d2a>:0
+07-01 23:17:57.395 22080 22547 D KP2A    :   at KeePassLib.Serialization.IOConnection.ReadFile (KeePassLib.Serialization.IOConnectionInfo ioc) [0x00006] in <54b409bc552b4f8c8161b5e284ef0d2a>:0
+07-01 23:17:57.397 22080 22547 D KP2A    : ERROR adding keyfile: Exception of type 'Java.IO.FileNotFoundException' was thrown.
+07-01 23:17:57.421 22080 22080 D KP2A    : DatabaseSettingsActivity.OnCreate 6
+07-01 23:17:57.421 22080 22080 D KP2A    : DatabaseSettingsActivity:apptask= 6
