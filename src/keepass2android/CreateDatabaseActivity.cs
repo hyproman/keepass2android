@@ -369,14 +369,14 @@ namespace keepass2android
 						filename = data.DataString;
 
 					
-						_keyfileFilename = FileSelectHelper.ConvertFilenameToIocPath(filename);
-						FindViewById<TextView>(Resource.Id.keyfile_filename).Text = _keyfileFilename;
-						FindViewById(Resource.Id.keyfile_filename).Visibility = ViewStates.Visible;
+					_keyfileFilename = FileSelectHelper.ConvertFilenameToIocPath(filename);
+					FindViewById<TextView>(Resource.Id.keyfile_filename).Text = _keyfileFilename;
+					FindViewById(Resource.Id.keyfile_filename).Visibility = ViewStates.Visible;
 					
-					}
-				
-				
+				}
+
 			}
+
 			if (resultCode == (Result)FileStorageResults.FileUsagePrepared)
 			{
 				_ioc = new IOConnectionInfo();

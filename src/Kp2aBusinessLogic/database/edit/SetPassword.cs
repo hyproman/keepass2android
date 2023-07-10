@@ -60,8 +60,9 @@ namespace keepass2android
 			if (String.IsNullOrEmpty (_keyfile) == false) {
 				try {
 					newKey.AddUserKey (new KcpKeyFile (_keyfile));
-				} catch (Exception) {
+				} catch (Exception e) {
 					//TODO MessageService.ShowWarning (strKeyFile, KPRes.KeyFileError, exKF);
+					Kp2aLog.Log("ERROR adding keyfile: " + e.Message);
 					return;
 				}
 			}
