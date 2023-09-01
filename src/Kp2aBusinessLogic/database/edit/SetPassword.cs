@@ -16,35 +16,38 @@ This file is part of Keepass2Android, Copyright 2013 Philipp Crocoll. This file 
   */
 using System;
 using Android.App;
-using Android.Content;
 using KeePassLib;
 using KeePassLib.Keys;
+using KeePassLib.Serialization;
 
 namespace keepass2android
 {
 	public class SetPassword : RunnableOnFinish {
 		
 		private readonly String _password;
-		private readonly String _keyfile;
+		private readonly byte[] _keyfileData;
+		private readonly IOConnectionInfo _ioc;
 		private readonly IKp2aApp _app;
 		private readonly bool _dontSave;
 		private readonly Activity _ctx;
 		
-		public SetPassword(Activity ctx, IKp2aApp app, String password, String keyfile, OnFinish finish): base(ctx, finish) {
+		public SetPassword(Activity ctx, IKp2aApp app, String password, byte[] keyfileData, IOConnectionInfo ioc, OnFinish finish): base(ctx, finish) {
 			_ctx = ctx;
 			_app = app;
 			_password = password;
-			_keyfile = keyfile;
+			_keyfileData = keyfileData;
+			_ioc = ioc;
 			_dontSave = false;
 		}
 
-		public SetPassword(Activity ctx, IKp2aApp app, String password, String keyfile, OnFinish finish, bool dontSave)
+		public SetPassword(Activity ctx, IKp2aApp app, String password, byte[] keyfileData, IOConnectionInfo ioc, OnFinish finish, bool dontSave)
 			: base(ctx, finish)
 		{
 			_ctx = ctx;
 			_app = app;
 			_password = password;
-			_keyfile = keyfile;
+			_keyfileData = keyfileData;
+			_ioc = ioc;
 			_dontSave = dontSave;
 		}
 		
@@ -57,17 +60,17 @@ namespace keepass2android
 			if (String.IsNullOrEmpty (_password) == false) {
 				newKey.AddUserKey (new KcpPassword (_password)); 
 			}
-			if (String.IsNullOrEmpty (_keyfile) == false) {
+			if (_keyfileData != null && _ioc != null) {
 				try {
-					newKey.AddUserKey (new KcpKeyFile (_keyfile));
-				} catch (Exception e) {
+                        newKey.AddUserKey(new KcpKeyFile(_keyfileData, _ioc, true));
+                } catch (Exception e) {
 					//TODO MessageService.ShowWarning (strKeyFile, KPRes.KeyFileError, exKF);
 					Kp2aLog.Log("ERROR adding keyfile: " + e.Message);
-					return;
-				}
-			}
+                    return;
+                }
+            }
 
-			DateTime previousMasterKeyChanged = pm.MasterKeyChanged;
+            DateTime previousMasterKeyChanged = pm.MasterKeyChanged;
 			CompositeKey previousKey = pm.MasterKey;
 
 			pm.MasterKeyChanged = DateTime.Now;

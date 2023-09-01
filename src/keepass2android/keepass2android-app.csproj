@@ -295,7 +295,6 @@
     <Compile Include="LockingActivity.cs" />
     <Compile Include="LockingClosePreferenceActivity.cs" />
     <Compile Include="LockingPreferenceActivity.cs" />
-    <Compile Include="SetPasswordDialog.cs" />
     <Compile Include="CancelDialog.cs" />
     <Compile Include="AboutDialog.cs" />
     <Compile Include="settings\AppSettingsActivity.cs" />
