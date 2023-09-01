@@ -5,6 +5,7 @@ using Android.Content.PM;
 using Android.OS;
 using Android.Preferences;
 using Android.Widget;
+using KeePassLib.Serialization;
 using Uri = Android.Net.Uri;
 
 
@@ -39,7 +40,6 @@ namespace keepass2android
             Button okButton = (Button)FindViewById(Resource.Id.ok);
             okButton.Click += (sender, e) =>
             {
-                Kp2aLog.Log("SetPasswordActivity: OK clicked");
                 TextView passView = (TextView)FindViewById(Resource.Id.pass_password);
                 String pass = passView.Text;
                 TextView passConfView = (TextView)FindViewById(Resource.Id.pass_conf_password);
@@ -57,8 +57,6 @@ namespace keepass2android
                 String keyfile = keyfileView.Text;
                 Keyfile = keyfile;
 
-                Kp2aLog.Log("SetPasswordActivity: OK clicked: keyFile=" + keyfile);
-
                 // Verify that a password or keyfile is set
                 if (pass.Length == 0 && keyfile.Length == 0)
                 {
@@ -66,14 +64,28 @@ namespace keepass2android
                     return;
                 }
 
-                SetPassword sp = new SetPassword(this, App.Kp2a, pass, keyfile, new AfterSave(this, this, null, new Handler()));
+                byte[] keyfileData = null;
+                IOConnectionInfo ioc = null;
+                if (String.IsNullOrEmpty(keyfile) == false)
+                {
+                    try
+                    {
+                        ioc = IOConnectionInfo.FromPath(keyfile);
+                        using (var stream = App.Kp2a.GetFileStorage(ioc).OpenFileForRead(ioc))
+                        {
+                            keyfileData = Util.StreamToMemoryStream(stream).ToArray();
+                        }
+                    } catch (Exception ex)
+                    {
+                        Toast.MakeText(this, Resource.String.error_adding_keyfile, ToastLength.Long).Show();
+                    }
+                }
+
+                SetPassword sp = new SetPassword(this, App.Kp2a, pass, keyfileData, ioc, new AfterSave(this, this, null, new Handler()));
                 ProgressTask pt = new ProgressTask(App.Kp2a, this, sp);
-                Kp2aLog.Log("SetPasswordActivity: OK clicked: ProgressTask run before");
                 pt.Run();
-                Kp2aLog.Log("SetPasswordActivity: OK clicked: ProgressTask run after");
 
                 // TODO: Is this correct??
-                Kp2aLog.Log("SetPasswordActivity: OK clicked: Starting DatabaseSettingsActivity");
                 StartActivity(new Intent(this, typeof(DatabaseSettingsActivity)));
             };
 
@@ -81,7 +93,6 @@ namespace keepass2android
             Button cancelButton = (Button)FindViewById(Resource.Id.cancel);
             cancelButton.Click += (sender, e) => {
                 // TODO: Is this correct??
-                Kp2aLog.Log("SetPasswordActivity: Cancel clicked: Starting DatabaseSettingsActivity");
                 StartActivity(new Intent(this, typeof(DatabaseSettingsActivity)));
             };
 
@@ -89,9 +100,8 @@ namespace keepass2android
             Button keyfileSelectButton = (Button)FindViewById(Resource.Id.select_pass_keyfile);
             keyfileSelectButton.Click += (sender, e) =>
             {
-                Kp2aLog.Log("SetPasswordActivity: Select clicked: Util.showBrowseDialog before");
+                // TODO: Make this a multi-protocol chooser, like CreateDatabaseActivity does
                 Util.ShowBrowseDialog(this, RequestCodeKeyFile, false, true);
-                Kp2aLog.Log("SetPasswordActivity: Select clicked: Util.showBrowseDialog before");
             };
 
         }
@@ -99,8 +109,6 @@ namespace keepass2android
         protected override void OnActivityResult(int requestCode, Result resultCode, Intent data)
         {
             base.OnActivityResult(requestCode, resultCode, data);
-
-            Kp2aLog.Log("SetPasswordActivity.OnActivityResult(" + requestCode + ", " + resultCode + ", " + data + ")");
             
             if (requestCode == RequestCodeKeyFile)
                 HandleKeyFileSelection(resultCode, data);
@@ -110,8 +118,6 @@ namespace keepass2android
         {
             if (resultCode != Result.Ok)
                 return;
-
-            Kp2aLog.Log("SetPasswordActivity.HandleKeyFileSelection");
 
             // TODO: Code duplicated from CreateDatabaseActivity.OnActivityResult
             //       refactor into helper function!
@@ -140,27 +146,12 @@ namespace keepass2android
             if (filename == null)
                 filename = data.DataString;
 
-            Kp2aLog.Log("SetPasswordActivity.HandleKeyFileSelection: filename=" + filename);
             if (filename != null)
             {
                 filename = FileSelectHelper.ConvertFilenameToIocPath(filename);
                 EditText keyFileText = (EditText)FindViewById(Resource.Id.pass_keyfile);
                 keyFileText.Text = filename;
-                Kp2aLog.Log("SetPasswordActivity.HandleKeyFileSelection: final filename=" + filename);
             }
-
-            //Uri uri = data.Data;
-            //if (uri == null)
-            //{
-            //    string s = Util.GetFilenameFromInternalFileChooser(data, this);
-            //    if (s != null)
-            //        uri = Uri.Parse(s);
-            //}
-            //if (uri != null)
-            //{
-            //    EditText keyFileText = (EditText)FindViewById(Resource.Id.pass_keyfile);
-            //    keyFileText.Text = uri.ToString();
-            //}
         }
 
         protected override void OnResume()
@@ -170,7 +161,6 @@ namespace keepass2android
             //
             // TODO: Do we need to add things here??
             //
-            Kp2aLog.Log("SetPasswordActivity.OnResume");
         }
 
         class AfterSave : OnFinish
@@ -188,16 +178,13 @@ namespace keepass2android
 
             public override void Run()
             {
-                Kp2aLog.Log("AfterSave.Run");
                 if (Success)
                 {
-                    Kp2aLog.Log("AfterSave.Run: Success");
                     if (_finish != null)
                     {
                         _finish.Filename = _setPassActivity.Keyfile;
                     }
 
-                    Kp2aLog.Log("AfterSave.Run: Getting fingerprint mode");
                     FingerprintUnlockMode um;
                     // TODO: Use _setPassActivity here or do we need the parent (DatabaseSettingsActivity) ??
                     Enum.TryParse(PreferenceManager.GetDefaultSharedPreferences(_setPassActivity)
@@ -215,19 +202,14 @@ namespace keepass2android
                         // TODO: Use _setPassActivity here or do we need the parent (DatabaseSettingsActivity) ??
                         _setPassActivity.StartActivity(typeof(BiometricSetupActivity));
                     }
-                    Kp2aLog.Log("AfterSave.Run: dialog dismiss (commented out)");
-                    // _dlg.Dismiss();
                 }
                 else
                 {
-                    Kp2aLog.Log("AfterSave.Run: DisplayMessage");
                     // TODO: Use _setPassActivity here or do we need the parent (DatabaseSettingsActivity) ??
                     DisplayMessage(_setPassActivity);
                 }
 
-                Kp2aLog.Log("AfterSave.Run: base before");
                 base.Run();
-                Kp2aLog.Log("AfterSave.Run: base after");
             }
 
         }
