@@ -2,7 +2,6 @@ package keepass2android.javafilestorage;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
-import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
@@ -20,7 +19,6 @@ import com.jcraft.jsch.ChannelSftp;
 import com.jcraft.jsch.ChannelSftp.LsEntry;
 import com.jcraft.jsch.JSch;
 import com.jcraft.jsch.JSchException;
-import com.jcraft.jsch.KeyPair;
 import com.jcraft.jsch.Logger;
 import com.jcraft.jsch.Session;
 import com.jcraft.jsch.SftpATTRS;
@@ -32,13 +30,38 @@ import android.content.Intent;
 import android.os.Bundle;
 import android.util.Log;
 
+@SuppressWarnings("unused")  // Exposed by JavaFileStorageBindings
 public class SftpStorage extends JavaFileStorageBase {
+	@FunctionalInterface
+	interface ValueResolver<T> {
+		/**
+		 * Takes a raw value and resolves it to either a String containing the String representation
+		 * of that value, or null. The latter signifying that the raw value could not be "resolved".
+		 *
+		 * @param value
+		 * @return String, or null if not resolvable
+		 */
+		String resolve(T value);
+	}
 
 	public static final int DEFAULT_SFTP_PORT = 22;
 	public static final int UNSET_SFTP_CONNECT_TIMEOUT = -1;
 	private static final String SFTP_CONNECT_TIMEOUT_OPTION_NAME = "connectTimeout";
+	private static final String SFTP_KEYNAME_OPTION_NAME = "key";
+	private static final String SFTP_KEYPASSPHRASE_OPTION_NAME = "phrase";
 
-	JSch jsch;
+	public static final String SSH_CFG_KEX = "kex";
+	public static final String SSH_CFG_SERVER_HOST_KEY = "server_host_key";
+	private static final Set<String> SSH_CFG_CSV_EXPANDABLE = Set.of(SSH_CFG_KEX, SSH_CFG_SERVER_HOST_KEY);
+	private static final ValueResolver<Integer> cTimeoutResolver = c ->
+			c == null || c == UNSET_SFTP_CONNECT_TIMEOUT ? null : String.valueOf(c);
+
+	private static final ValueResolver<String> nonBlankStringResolver = s ->
+			s == null || s.isBlank() ? null : s;
+
+	private static final String TAG = "KP2AJFS";
+	private static final String THREAD_TAG = TAG + "[thread]";
+	private JSch jsch;
 
 	public class ConnectionInfo
 	{
@@ -46,39 +69,41 @@ public class SftpStorage extends JavaFileStorageBase {
 		public String username;
 		public String password;
 		public String localPath;
+		public String keyName;
+		public String keyPassphrase;
 		public int port;
 		public int connectTimeoutSec = UNSET_SFTP_CONNECT_TIMEOUT;
-
+		public final Map<String, String> configOpts = new HashMap<>();
 
 		public String toString() {
 			return "ConnectionInfo{host=" + host + ",port=" + port + ",user=" + username +
-					",pwd=<hidden>,path=" + localPath + ",connectTimeout=" + connectTimeoutSec +
+					",pwd=<hidden>,localPath=" + localPath + ",key=" + keyName +
+					",phrase=<hidden>,connectTimeout=" + connectTimeoutSec +
+					",cfgOpts=" + configOpts +
 					"}";
 		}
+	}
 
-		boolean hasOptions() {
-			return connectTimeoutSec != UNSET_SFTP_CONNECT_TIMEOUT;
+	private static Map<String, String> buildOptionMap(ConnectionInfo ci, boolean includeSensitive) {
+		OptionMapBuilder b = new OptionMapBuilder()
+				.addOption(SFTP_CONNECT_TIMEOUT_OPTION_NAME, ci.connectTimeoutSec, cTimeoutResolver)
+				.addOption(SFTP_KEYNAME_OPTION_NAME, ci.keyName, nonBlankStringResolver);
+		// Assume all config options are not sensitive and use the same resolver...
+		for (Map.Entry<String, String> entry : ci.configOpts.entrySet()) {
+			b.addOption(entry.getKey(), entry.getValue(), nonBlankStringResolver);
 		}
-	}
-
-	private static Map<String, String> buildOptionMap(ConnectionInfo ci) {
-		return buildOptionMap(ci.connectTimeoutSec);
-	}
-
-	private static Map<String, String> buildOptionMap(int connectTimeoutSec) {
-		Map<String, String> opts = new HashMap<>();
-		if (connectTimeoutSec != UNSET_SFTP_CONNECT_TIMEOUT) {
-			opts.put(SFTP_CONNECT_TIMEOUT_OPTION_NAME, String.valueOf(connectTimeoutSec));
+		if (includeSensitive) {
+			b.addOption(SFTP_KEYPASSPHRASE_OPTION_NAME, ci.keyPassphrase, nonBlankStringResolver);
 		}
-		return opts;
+		return b.build();
 	}
-
 
 	Context _appContext;
+	private final SftpPublicPrivateKeyUtils _keyUtils;
 
 	public SftpStorage(Context appContext) {
 		_appContext = appContext;
-
+		_keyUtils = new SftpPublicPrivateKeyUtils(getBaseDir());
 	}
 
 	private static final String SFTP_PROTOCOL_ID = "sftp";
@@ -186,7 +211,10 @@ public class SftpStorage extends JavaFileStorageBase {
 			tryDisconnect(c);
 
 			return buildFullPath(cInfo.host, cInfo.port, newPath,
-					cInfo.username, cInfo.password, cInfo.connectTimeoutSec);
+					cInfo.username, cInfo.password, cInfo.connectTimeoutSec,
+					cInfo.keyName, cInfo.keyPassphrase,
+					cInfo.configOpts.get(SSH_CFG_KEX),
+					cInfo.configOpts.get(SSH_CFG_SERVER_HOST_KEY));
 		} catch (Exception e) {
 			throw convertException(e);
 		}
@@ -407,49 +435,58 @@ public class SftpStorage extends JavaFileStorageBase {
 	ChannelSftp init(ConnectionInfo cInfo) throws JSchException, UnsupportedEncodingException {
 		jsch = new JSch();
 
-		Log.d("KP2AJFS", "init SFTP");
+		Log.d(TAG, "init SFTP");
 
 		String base_dir = getBaseDir();
 		jsch.setKnownHosts(base_dir + "/known_hosts");
 
-		String key_filename = getKeyFileName();
-		try{
-			createKeyPair(key_filename);
-		} catch (Exception ex) {
-			System.out.println(ex);
-		}
+		String key_filepath = _keyUtils.resolveKeyFilePath(jsch, cInfo.keyName);
 
 		try {
-			jsch.addIdentity(key_filename);
-		} catch (java.lang.Exception e)
-		{
+			jsch.addIdentity(key_filepath);
+		} catch (java.lang.Exception e) {
 
 		}
 
-		Log.e("KP2AJFS[thread]", "getting session...");
+		Log.e(THREAD_TAG, "getting session...");
 		Session session = jsch.getSession(cInfo.username, cInfo.host, cInfo.port);
-		Log.e("KP2AJFS", "creating SftpUserInfo");
-		UserInfo ui = new SftpUserInfo(cInfo.password, _appContext);
-		session.setUserInfo(ui);
 
-		session.setConfig("PreferredAuthentications", "publickey,password");
-
+		sessionConfigure(session, cInfo);
 		sessionConnect(session, cInfo);
 
 		Channel channel = session.openChannel("sftp");
 		channel.connect();
 		ChannelSftp c = (ChannelSftp) channel;
 
-		logDebug("success: init Sftp");
 		return c;
 
 	}
 
-	private void sessionConnect(Session session, ConnectionInfo ci) throws JSchException {
-		if (ci.connectTimeoutSec != UNSET_SFTP_CONNECT_TIMEOUT) {
-			session.connect(ci.connectTimeoutSec * 1000);
+	private void sessionConnect(Session session, ConnectionInfo cInfo) throws JSchException {
+		if (cInfo.connectTimeoutSec != UNSET_SFTP_CONNECT_TIMEOUT) {
+			session.connect(cInfo.connectTimeoutSec * 1000);
 		} else {
 			session.connect();
+		}
+	}
+
+	private void sessionConfigure(Session session, ConnectionInfo cInfo) {
+		Log.e(TAG, "creating SftpUserInfo");
+		UserInfo ui = new SftpUserInfo(cInfo.password, cInfo.keyPassphrase, _appContext);
+		session.setUserInfo(ui);
+
+		session.setConfig("PreferredAuthentications", "publickey,password");
+
+		for (Map.Entry<String, String> e : cInfo.configOpts.entrySet()) {
+			String cfgKey = e.getKey();
+			String before = session.getConfig(cfgKey);
+			String after = e.getValue();
+
+			if (SSH_CFG_CSV_EXPANDABLE.contains(cfgKey)) {
+				SshConfigCsvValueResolver resolver = new SshConfigCsvValueResolver(cfgKey, after);
+				after = resolver.resolve(before);
+			}
+			session.setConfig(cfgKey, after);
 		}
 	}
 
@@ -457,15 +494,25 @@ public class SftpStorage extends JavaFileStorageBase {
 		return _appContext.getFilesDir().getAbsolutePath();
 	}
 
-	private String getKeyFileName() {
-		return getBaseDir() + "/id_kp2a_rsa";
+	public boolean deleteCustomKey(String keyName) throws FileNotFoundException {
+		return _keyUtils.deleteCustomKey(keyName);
 	}
 
+	public String[] getCustomKeyNames() {
+		return _keyUtils.getCustomKeyNames();
+	}
+
+	@SuppressWarnings("unused")  // Exposed by JavaFileStorageBindings
 	public String createKeyPair() throws IOException, JSchException {
-		return createKeyPair(getKeyFileName());
-
+		return _keyUtils.createKeyPair(jsch);
 	}
 
+	@SuppressWarnings("unused")  // Exposed by JavaFileStorageBindings
+	public void savePrivateKeyContent(String keyName, String keyContent) throws IOException, Exception {
+		_keyUtils.savePrivateKeyContent(keyName, keyContent);
+	}
+
+	@SuppressWarnings("unused")  // Exposed by JavaFileStorageBindings
 	public void setJschLogging(boolean enabled, String logFilename) {
 		Logger impl = null;
 		if (enabled) {
@@ -478,32 +525,57 @@ public class SftpStorage extends JavaFileStorageBase {
 		JSch.setLogger(impl);
 	}
 
-	private String createKeyPair(String key_filename) throws JSchException, IOException {
-		String public_key_filename = key_filename + ".pub";
-		File file = new File(key_filename);
-		if (file.exists())
-			return public_key_filename;
-		int type = KeyPair.RSA;
-		KeyPair kpair = KeyPair.genKeyPair(jsch, type, 4096);
-		kpair.writePrivateKey(key_filename);
+	/**
+	 * Exposed for testing purposes only.
+	 * @param keyName
+	 * @return
+	 */
+	public String sanitizeCustomKeyName(String keyName) {
+		return _keyUtils.getSanitizedCustomKeyName(keyName);
+	}
 
-		kpair.writePublicKey(public_key_filename, "generated by Keepass2Android");
-		//ret = "Fingerprint: " + kpair.getFingerPrint();
-		kpair.dispose();
-		return public_key_filename;
+	/**
+	 * Exposed for testing purposes only.
+	 * @param keyContent
+	 * @return
+	 * @throws Exception
+	 */
+	public String getValidatedCustomKeyContent(String keyContent) throws Exception {
+		return _keyUtils.getValidatedCustomKeyContent(keyContent);
+	}
 
+	/**
+	 * Exposed for testing purposes only.
+	 * @param currentValues
+	 * @param spec
+	 * @return
+	 * @throws Exception
+	 */
+	public String resolveCsvValues(String currentValues, String spec) {
+		return new SshConfigCsvValueResolver("test", spec)
+				.resolve(currentValues);
 	}
 
 	public ConnectionInfo splitStringToConnectionInfo(String filename)
 			throws UnsupportedEncodingException {
+
 		ConnectionInfo ci = new ConnectionInfo();
 		ci.host = extractUserPwdHostPort(filename);
+
 		String userPwd = ci.host.substring(0, ci.host.indexOf('@'));
-		ci.username = decode(userPwd.substring(0, userPwd.indexOf(":")));
-		ci.password = decode(userPwd.substring(userPwd.indexOf(":")+1));
+		int sepIdx = userPwd.indexOf(":");
+		if (sepIdx > 0) {
+			ci.username = decode(userPwd.substring(0, sepIdx));
+			ci.password = decode(userPwd.substring(sepIdx + 1));
+		} else {
+			ci.username = userPwd;
+			ci.password = null;
+		}
+
 		ci.host = ci.host.substring(ci.host.indexOf('@') + 1);
 		ci.port = DEFAULT_SFTP_PORT;
-		int portSeparatorIndex = ci.host.lastIndexOf(":");
+
+		int portSeparatorIndex = ci.host.lastIndexOf(':');
 		if (portSeparatorIndex >= 0)
 		{
 			ci.port = Integer.parseInt(ci.host.substring(portSeparatorIndex + 1));
@@ -525,6 +597,19 @@ public class SftpStorage extends JavaFileStorageBase {
 				logDebug(SFTP_CONNECT_TIMEOUT_OPTION_NAME + " option not a number: " + optVal);
 			}
 		}
+		if (options.containsKey(SFTP_KEYNAME_OPTION_NAME)) {
+			ci.keyName = options.get(SFTP_KEYNAME_OPTION_NAME);
+		}
+		if (options.containsKey(SFTP_KEYPASSPHRASE_OPTION_NAME)) {
+			ci.keyPassphrase = options.get(SFTP_KEYPASSPHRASE_OPTION_NAME);
+		}
+
+		for (String cfgKey : SSH_CFG_CSV_EXPANDABLE) {
+			if (options.containsKey(cfgKey)) {
+				ci.configOpts.put(cfgKey, options.get(cfgKey));
+			}
+		}
+
 		return ci;
 	}
 
@@ -566,9 +651,7 @@ public class SftpStorage extends JavaFileStorageBase {
 					.append("@")
 					.append(ci.host)
 					.append(ci.localPath);
-			if (ci.hasOptions()) {
-				appendOptions(dName, buildOptionMap(ci));
-			}
+			appendOptions(dName, buildOptionMap(ci, false));
 			return dName.toString();
 		}
 		catch (Exception e)
@@ -602,11 +685,17 @@ public class SftpStorage extends JavaFileStorageBase {
 
 	public String buildFullPath(String host, int port, String localPath,
 										String username, String password,
-										int connectTimeoutSec)
+										int connectTimeoutSec,
+										String keyName, String keyPassphrase,
+										String kexAlgorithms, String shkAlgorithms)
 			throws UnsupportedEncodingException {
-		StringBuilder uri = new StringBuilder(getProtocolPrefix())
-				.append(encode(username)).append(":").append(encode(password))
-				.append("@");
+
+		StringBuilder uri = new StringBuilder(getProtocolPrefix()).append(encode(username));
+		if (password != null) {
+			uri.append(":").append(encode(password));
+		}
+		uri.append("@");
+
 		// Encode/decode required to support IPv6 (colons break host:port parse logic)
 		// See Bug #2350
 		uri.append(encode(host));
@@ -618,8 +707,13 @@ public class SftpStorage extends JavaFileStorageBase {
 			uri.append(localPath);
 		}
 
-		Map<String, String> opts = buildOptionMap(connectTimeoutSec);
-		appendOptions(uri, opts);
+		appendOptions(uri, new OptionMapBuilder()
+				.addOption(SFTP_CONNECT_TIMEOUT_OPTION_NAME, connectTimeoutSec, cTimeoutResolver)
+				.addOption(SFTP_KEYNAME_OPTION_NAME, keyName, nonBlankStringResolver)
+				.addOption(SFTP_KEYPASSPHRASE_OPTION_NAME, keyPassphrase, nonBlankStringResolver)
+				.addOption(SSH_CFG_KEX, kexAlgorithms, nonBlankStringResolver)
+				.addOption(SSH_CFG_SERVER_HOST_KEY, shkAlgorithms, nonBlankStringResolver)
+				.build());
 
 		return uri.toString();
 	}
@@ -658,6 +752,33 @@ public class SftpStorage extends JavaFileStorageBase {
 		@Override
 		public int compare(Map.Entry<T, ?> o1, Map.Entry<T, ?> o2) {
 			return o1.getKey().compareTo(o2.getKey());
+		}
+	}
+
+	private static class OptionMapBuilder {
+		private final Map<String, String> options = new HashMap<>();
+
+		/**
+		 * Attempts to add a raw value <code>oVal</code> to the underlying option map with key <code>oName</code>
+		 * iff the <code>resolver</code> produces a non-null output when invoked using the raw value.
+		 *
+		 * @param oName the name/key associated with the value, if added
+		 * @param oVal the raw value attempting to be added
+		 * @param resolver the resolver that determines if the value will be added
+		 *
+		 * @return OptionMapBuilder (updated)
+		 * @param <T> the raw value type
+		 */
+		<T> OptionMapBuilder addOption(final String oName, T oVal, ValueResolver<T> resolver) {
+			String resolved = resolver.resolve(oVal);
+			if (resolved != null) {
+				options.put(oName, resolved);
+			}
+			return this;
+		}
+
+		Map<String, String> build() {
+			return new HashMap<>(options);
 		}
 	}
 }
